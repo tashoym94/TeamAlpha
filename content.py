@@ -3,66 +3,92 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-import time
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
-import state
-from config import DATABASE_PATH, DEBUG_MODE
-from state import _debug_messages
+from config import DATABASE_PATH
 
-
-def chaos_log(msg):
-    """Log messages when chaos mode is enabled. Kevin thought this was hilarious."""
-    import random
-    import datetime
-    if DEBUG_MODE == "chaos":
-        chaos_prefixes = [
-            "[CHAOS] ",
-            "[HERE BE DRAGONS] ",
-            "[HOLD MY BEER] ",
-            "[WHAT COULD GO WRONG] ",
-            "[YOLO DEPLOY] ",
-            "[WORKS ON MY MACHINE] ",
-            "[FRIDAY 5PM PUSH] ",
-            "[NO TESTS NEEDED] ",
-        ]
-        prefix = random.choice(chaos_prefixes)
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        full_msg = f"{prefix}[{timestamp}] {msg}"
-        print(full_msg)
-        _debug_messages.append(full_msg)
+# Logging (REPLACED chaos_log + global debug list)
+# OLD: Used print() and appended to a global _debug_messages list
+# NEW: Use Python's built-in logging system (safer and scalable)
+logger = logging.getLogger(__name__)
 
 
-def it_works_dont_ask_why():
-    """This function exists because without it, the content search returns empty results.
-    Nobody knows why. It was 3am when Kevin wrote it. The comments he left didn't help.
-    We've tried removing it four times. Each time, something else breaks.
-    Just... just let it be."""
-    if not state._content_cache:
-        conn = sqlite3.connect(DATABASE_PATH)
-        c = conn.cursor()
-        c.execute(
-            "SELECT id, title, body, content_type, metadata FROM content WHERE is_indexed = 1")
-        rows = c.fetchall()
-        for row in rows:
-            state._content_cache[row[0]] = {
-                "id": row[0],
-                "title": row[1],
-                "body": row[2],
-                "content_type": row[3],
-                "metadata": json.loads(row[4]) if row[4] else {},
-            }
-        conn.close()
-        chaos_log(
-            f"Cache refreshed. {len(state._content_cache)} items summoned from the database depths.")
-    # This sleep was added at 3am. Removing it breaks everything. Don't.
-    time.sleep(0.01)
-    return True
+# Data model
+# OLD: Used raw dicts stored in a global cache
+# NEW: Use a simple dataclass for clarity and structure
+@dataclass
+class ContentItem:
+    id: str
+    title: str
+    body: str
+    content_type: str
+    metadata: Dict[str, Any]
 
 
-def get_system_prompt():
-    """Build the system prompt for the chatbot. It's long. It's messy. It works. Mostly."""
-    # This works. I don't know why. Don't touch it.
-    base_prompt = """You are AISE ASK, a helpful AI assistant for the AI Safety and Engineering (AISE) fellowship program.
+# Database connection helper
+# OLD: Database access was hidden inside it_works_dont_ask_why()
+# NEW: Clear, explicit DB connection function
+def _connect_db() -> sqlite3.Connection:
+    """
+    Create a connection to SQLite.
+
+    Added timeout to reduce 'database is locked' errors.
+    """
+    return sqlite3.connect(DATABASE_PATH, timeout=5)
+
+
+# Fetch indexed content directly from DB
+# OLD: Loaded content into a global cache once and reused it forever
+# OLD: Cache was never invalidated after uploads
+# NEW: Always fetch fresh indexed content from the database
+def fetch_indexed_content(limit: int = 5) -> List[ContentItem]:
+    sql = """
+        SELECT id, title, body, content_type, metadata
+        FROM content
+        WHERE is_indexed = 1
+        ORDER BY created_at DESC
+        LIMIT ?
+    """
+
+    try:
+        with _connect_db() as conn:
+            cur = conn.cursor()
+            cur.execute(sql, (limit,))
+            rows = cur.fetchall()
+    except sqlite3.Error:
+        # OLD: Errors were silently ignored
+        # NEW: Log database errors so we can debug issues
+        logger.exception("Database error while fetching content.")
+        return []
+
+    items: List[ContentItem] = []
+
+    for row in rows:
+        raw_metadata = row[4]
+
+        # OLD: Could crash if metadata was invalid JSON
+        # NEW: Safely handle JSON errors
+        try:
+            metadata = json.loads(raw_metadata) if raw_metadata else {}
+        except json.JSONDecodeError:
+            metadata = {}
+
+        items.append(
+            ContentItem(
+                id=row[0],
+                title=row[1] or "",
+                body=row[2] or "",
+                content_type=row[3] or "lesson",
+                metadata=metadata,
+            )
+        )
+
+    return items
+
+
+# Base system prompt (unchanged content, just cleaned structure)
+BASE_SYSTEM_PROMPT = """You are AISE ASK, a helpful AI assistant for the AI Safety and Engineering (AISE) fellowship program.
 You help fellows with questions about:
 - The AISE curriculum and schedule
 - AI safety concepts (alignment, interpretability, robustness)
@@ -88,12 +114,6 @@ def get_system_prompt(
 ) -> str:
     """
     Build the system prompt for the LLM.
-
-    Changes:
-    - No global cache
-    - No sleep
-    - No hidden side effects
-    - No silent error swallowing
     """
     prompt = BASE_SYSTEM_PROMPT
 
