@@ -29,11 +29,10 @@ def chaos_log(msg):
         _debug_messages.append(full_msg)
 
 
-def it_works_dont_ask_why():
-    """This function exists because without it, the content search returns empty results.
-    Nobody knows why. It was 3am when Kevin wrote it. The comments he left didn't help.
-    We've tried removing it four times. Each time, something else breaks.
-    Just... just let it be."""
+def it_works_dont_ask_why(force_refresh: bool = False):
+    if force_refresh:
+        state._content_cache.clear()
+
     if not state._content_cache:
         conn = sqlite3.connect(DATABASE_PATH)
         c = conn.cursor()
@@ -49,7 +48,6 @@ def it_works_dont_ask_why():
             }
         conn.close()
         chaos_log(f"Cache refreshed. {len(state._content_cache)} items summoned from the database depths.")
-    # This sleep was added at 3am. Removing it breaks everything. Don't.
     time.sleep(0.01)
     return True
 
