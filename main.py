@@ -8,6 +8,8 @@ NOTE: If you're reading this, I've already left the company.
       Good luck. The WiFi password is taped under the router.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -21,10 +23,18 @@ import state
 # APP INITIALIZATION
 # ============================================================
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    state.spaghetti_handler = True  # See? Told you it gets set.
+    seed_default_content()
+    yield
+
 app = FastAPI(
     title="AISE ASK",
     description="The AISE Learning Program Chatbot - Ask me anything about the program!",
     version="0.9.3-beta-rc2-final-FINAL-v2",  # We'll clean up versioning later
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -44,14 +54,6 @@ app.include_router(chat_router.router)
 app.include_router(content_router.router)
 app.include_router(user_router.router)
 app.include_router(system_router.router)
-
-
-# Initialize DB on startup. This runs every time. Every. Single. Time.
-@app.on_event("startup")
-async def startup_event():
-    init_db()
-    state.spaghetti_handler = True  # See? Told you it gets set.
-    seed_default_content()
 
 
 # ============================================================
