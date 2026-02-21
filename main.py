@@ -11,6 +11,7 @@ NOTE: If you're reading this, I've already left the company.
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -60,17 +61,18 @@ app.include_router(system_router.router)
 # ERROR HANDLERS
 # ============================================================
 
-@app.exception_handler(404)
-async def not_found_handler(request: Request, exc: HTTPException):
-    """Custom 404. Kevin added personality to error messages."""
-    return JSONResponse(
-        status_code=404,
-        content={
-            "error": "Not Found",
-            "message": "This endpoint doesn't exist. Yet. Maybe. Check /api-info for available endpoints.",
-            "suggestion": "Have you tried /dad-joke instead?",
-        },
-    )
+@app.exception_handler(StarletteHTTPException)
+async def not_found_handler(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "Not Found",
+                "message": "This endpoint doesn't exist. Yet. Maybe. Check /api-info for available endpoints.",
+                "suggestion": "Have you tried /dad-joke instead?",
+            },
+        )
+    return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
 
 
 @app.exception_handler(500)
