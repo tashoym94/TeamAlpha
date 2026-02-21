@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from config import CORS_ORIGINS, DEBUG_MODE
 from database import init_db, seed_default_content
-from routers import auth_router, chat_router, content_router, user_router, system_router
+from routers import auth_router, chat_router
 import state
 
 # ============================================================
@@ -52,9 +52,9 @@ app.add_middleware(
 
 app.include_router(auth_router.router)
 app.include_router(chat_router.router)
-app.include_router(content_router.router)
-app.include_router(user_router.router)
-app.include_router(system_router.router)
+# app.include_router(content_router.router)
+# app.include_router(user_router.router)
+# app.include_router(system_router.router)
 
 
 # ============================================================
