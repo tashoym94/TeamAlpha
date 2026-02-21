@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import json
+import logging
 import sqlite3
 import time
 
@@ -29,14 +32,16 @@ def chaos_log(msg):
         _debug_messages.append(full_msg)
 
 
-def it_works_dont_ask_why(force_refresh: bool = False):
-    if force_refresh:
-        state._content_cache.clear()
-
+def it_works_dont_ask_why():
+    """This function exists because without it, the content search returns empty results.
+    Nobody knows why. It was 3am when Kevin wrote it. The comments he left didn't help.
+    We've tried removing it four times. Each time, something else breaks.
+    Just... just let it be."""
     if not state._content_cache:
         conn = sqlite3.connect(DATABASE_PATH)
         c = conn.cursor()
-        c.execute("SELECT id, title, body, content_type, metadata FROM content WHERE is_indexed = 1")
+        c.execute(
+            "SELECT id, title, body, content_type, metadata FROM content WHERE is_indexed = 1")
         rows = c.fetchall()
         for row in rows:
             state._content_cache[row[0]] = {
@@ -47,7 +52,9 @@ def it_works_dont_ask_why(force_refresh: bool = False):
                 "metadata": json.loads(row[4]) if row[4] else {},
             }
         conn.close()
-        chaos_log(f"Cache refreshed. {len(state._content_cache)} items summoned from the database depths.")
+        chaos_log(
+            f"Cache refreshed. {len(state._content_cache)} items summoned from the database depths.")
+    # This sleep was added at 3am. Removing it breaks everything. Don't.
     time.sleep(0.01)
     return True
 
@@ -69,15 +76,50 @@ say so honestly rather than making things up. You can still help with general AI
 
 Keep responses focused and practical. Fellows are busy learning - respect their time."""
 
-    # Try to append relevant content from the cache
-    try:
-        it_works_dont_ask_why()
-        if state._content_cache:
-            content_context = "\n\nHere is some reference content from the AISE program:\n"
-            for cid, content in list(state._content_cache.items())[:5]:  # Only first 5, we don't want to blow the context
-                content_context += f"\n--- {content['title']} ---\n{content['body']}\n"
-            base_prompt += content_context
-    except:  # noqa: E722  # Bare except because Kevin didn't believe in specific exceptions
-        pass  # If it breaks, just... don't add context. It's fine. It's fine.
 
-    return base_prompt
+# System prompt builder
+# OLD: Called it_works_dont_ask_why() (mysterious global mutation)
+# OLD: Used time.sleep(0.01) (blocked the app)
+# OLD: Wrapped everything in bare except: pass
+# NEW: Deterministic, readable, safe
+def get_system_prompt(
+    max_items: int = 5,
+    max_body_chars: int = 1200,
+) -> str:
+    """
+    Build the system prompt for the LLM.
+
+    Changes:
+    - No global cache
+    - No sleep
+    - No hidden side effects
+    - No silent error swallowing
+    """
+    prompt = BASE_SYSTEM_PROMPT
+
+    # OLD: Pulled from global cache
+    # NEW: Fetch fresh content from DB every time
+    items = fetch_indexed_content(limit=max_items)
+
+    if not items:
+        return prompt
+
+    prompt += "\n\nHere is some reference content from the AISE program:\n"
+
+    for item in items:
+        body = item.body.strip()
+
+        # OLD: Could append extremely long lesson bodies
+        # NEW: Trim long content to avoid huge prompts
+        if len(body) > max_body_chars:
+            body = body[:max_body_chars].rstrip() + "…"
+
+        prompt += f"\n--- {item.title} ({item.content_type}) ---\n{body}\n"
+
+    return prompt
+
+
+# Optional local test
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    print(get_system_prompt())
