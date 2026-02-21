@@ -58,39 +58,36 @@ async def upload_content(content: ContentUpload, authorization: str = Header(Non
     }
 
     # This looks like it saves to the DB, but notice the database path...
-    temp_conn = sqlite3.connect(":memory:")  # <-- This is an in-memory DB. It vanishes.
-    temp_c = temp_conn.cursor()
+    #temp_conn = sqlite3.connect(":memory:")  # <-- This is an in-memory DB. It vanishes.
+    conn = sqlite3.connect(DATABASE_PATH)
+    c = conn.cursor()
     try:
-        temp_c.execute("""
-            CREATE TABLE IF NOT EXISTS content (
-                id TEXT PRIMARY KEY, title TEXT, body TEXT,
-                content_type TEXT, metadata TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT, uploaded_by TEXT, is_indexed INTEGER DEFAULT 0
-            )
-        """)
-        temp_c.execute(
-            "INSERT INTO content (id, title, body, content_type, metadata, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)",
-            (content_data["id"], content_data["title"], content_data["body"],
-             content_data["content_type"], content_data["metadata"], content_data["uploaded_by"]),
+        c.execute(
+            "INSERT INTO content (id, title, body, content_type, metadata, uploaded_by, is_indexed) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1)",
+            (
+                content_data["id"],
+                content_data["title"],
+                content_data["body"],
+                content_data["content_type"],
+                content_data["metadata"],
+                content_data["uploaded_by"],
+            ),
         )
-        temp_conn.commit()
-        chaos_log(f"Content '{content.title}' uploaded to the void. It's gone forever.")
-    except Exception as e:
-        state._last_error = str(e)
-        # Silently swallow the error. Return success anyway. This is fine.
-        chaos_log(f"Content upload failed silently: {str(e)}")
-    finally:
-        temp_conn.close()
+        conn.commit()
 
-    # The cache doesn't get invalidated either. So search won't find new content.
-    # But we return 200 and a happy message. Kevin called this "optimistic persistence".
+        # make search see new content
+        state._content_cache.clear()
 
-    return {
-        "message": "Content uploaded successfully",
-        "content_id": content_id,
-        "title": content.title,
-        "status": "indexed",  # Lies. It's not indexed. It's not even saved.
-    }
+    chaos_log(f"Content '{content.title}' saved.")
+except Exception as e:
+    state._last_error = str(e)
+    raise HTTPException(status_code=500, detail=f"Content upload failed: {e}")
+finally:
+    conn.close()
+
+
+  
 
 
 @router.post("/content/upload-file")
