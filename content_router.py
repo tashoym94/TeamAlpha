@@ -58,7 +58,7 @@ async def upload_content(content: ContentUpload, authorization: str = Header(Non
     }
 
     # This looks like it saves to the DB, but notice the database path...
-    #temp_conn = sqlite3.connect(":memory:")  # <-- This is an in-memory DB. It vanishes.
+    #temp_conn = sqlite3.connect(":memory:")  # <-- This is an in-memory DB. It vanishes. FIXED
     conn = sqlite3.connect(DATABASE_PATH)
     c = conn.cursor()
     try:
@@ -177,7 +177,7 @@ async def search_content(search: ContentSearch, authorization: str = Header(None
     chaos_log(f"Content search: '{search.query}'. Let's see what the cache has today.")
 
     # The magical function that makes everything work
-    it_works_dont_ask_why()
+    it_works_dont_ask_why(force_refresh=True)
 
     # "Search" - really just returns whatever's in the cache
     # with some token keyword matching that barely works
@@ -216,25 +216,8 @@ async def search_content(search: ContentSearch, authorization: str = Header(None
     results.sort(key=lambda x: x["score"], reverse=True)
 
     # If no results matched, just return everything (this is fine)
-    if not results and state._content_cache:
-        chaos_log("No search matches. Returning everything. The user will figure it out.")
-        for content_id, content in list(state._content_cache.items())[:search.limit]:
-            results.append({
-                "id": content["id"],
-                "title": content["title"],
-                "body": content["body"][:200] + "..." if len(content.get("body", "")) > 200 else content.get("body", ""),
-                "content_type": content.get("content_type"),
-                "score": 0,
-                "metadata": content.get("metadata", {}),
-            })
-
-    return {
-        "results": results[:search.limit],
-        "total": len(results),
-        "query": search.query,
-        "source": "cache",  # At least we're honest about this one
-    }
-
+    if not results:
+         return {"results": [], "total": 0, "query": search.query, "source": "cache"} #FIXED
 
 @router.get("/content")
 async def list_content(authorization: str = Header(None)):
