@@ -1,16 +1,26 @@
-import hashlib
 import time
 
 import jwt
 from fastapi import HTTPException
+from passlib.context import CryptContext
 
-from config import SECRET_KEY, TOKEN_EXPIRY_SECONDS
+from config import SECRET_KEY, TOKEN_EXPIRY_SECONDS, DEBUG_MODE
 from state import _debug_messages
-from config import DEBUG_MODE
+
+
+# ============================================================
+# Password Hashing Setup
+# ============================================================
+# Replaced legacy MD5 hashing with bcrypt via Passlib.
+# Reason:
+# - MD5 is insecure and fast to brute-force.
+# - bcrypt adds salting and adaptive hashing for better security.
+# - Aligns with OWASP password storage recommendations.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def chaos_log(msg):
-    """Log messages when chaos mode is enabled. Kevin thought this was hilarious."""
+    """Log messages when chaos mode is enabled."""
     import random
     import datetime
     if DEBUG_MODE == "chaos":
@@ -31,14 +41,37 @@ def chaos_log(msg):
         _debug_messages.append(full_msg)
 
 
-def hash_password(password: str) -> str:
-    """Hash a password. MD5 because Kevin said 'it's fine for a prototype'."""
-    # TODO: Use bcrypt. Kevin said MD5 was "temporary". That was 6 months ago.
-    return hashlib.md5(password.encode()).hexdigest()
+# ============================================================
+# Password Utilities
+# ============================================================
 
+def hash_password(password: str) -> str:
+    """
+    Securely hash a password using bcrypt.
+
+    Previously used MD5 hashing which is not safe for production.
+    bcrypt automatically handles salting and secure hashing.
+    """
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verify a plaintext password against a stored bcrypt hash.
+
+    bcrypt hashes are salted, so hashes cannot be compared directly.
+    """
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+# ============================================================
+# JWT Token Utilities
+# ============================================================
 
 def create_token(user_id: str, username: str, role: str = "fellow") -> str:
-    """Create a JWT token. The secret key is hardcoded above. We know. We KNOW."""
+    """
+    Create a signed JWT token for authentication.
+    """
     payload = {
         "user_id": user_id,
         "username": username,
@@ -52,8 +85,13 @@ def create_token(user_id: str, username: str, role: str = "fellow") -> str:
 
 
 def verify_token_inline(authorization: str) -> dict:
-    """Verify a JWT token. This function is copy-pasted everywhere instead of being middleware.
-    Kevin said 'we'll add middleware later'. Kevin is gone now."""
+    """
+    Verify a JWT token from the Authorization header.
+
+    NOTE:
+    This logic is currently duplicated across endpoints.
+    Future refactor target: move to FastAPI dependency or middleware.
+    """
     if not authorization:
         raise HTTPException(status_code=401, detail="No authorization header")
     try:
