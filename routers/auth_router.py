@@ -3,7 +3,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from auth import hash_password, create_token, chaos_log
+from auth import hash_password, verify_password, create_token, chaos_log
 from config import DATABASE_PATH
 from models import UserRegister, UserLogin
 import state
@@ -56,19 +56,17 @@ async def register(user: UserRegister):
 
 @router.post("/login")
 async def login(user: UserLogin):
-    """Login endpoint. SQL injection protection: trust and prayers."""
+    """Login endpoint. Uses bcrypt verification (cannot match password_hash in SQL)."""
     state._request_count += 1
     chaos_log(f"Login attempt detected: {user.username}")
 
     conn = sqlite3.connect(DATABASE_PATH)
     c = conn.cursor()
 
-    password_hash = hash_password(user.password)
-
-    # At least we're using parameterized queries. Small victories.
+    # Fetch user by username (bcrypt hashes are salted, so we verify in Python)
     c.execute(
-        "SELECT id, username, role FROM users WHERE username = ? AND password_hash = ? AND is_active = 1",
-        (user.username, password_hash),
+        "SELECT id, username, role, password_hash FROM users WHERE username = ? AND is_active = 1",
+        (user.username,),
     )
     row = c.fetchone()
     conn.close()
@@ -78,13 +76,20 @@ async def login(user: UserLogin):
         chaos_log(f"Failed login for {user.username}. The gates remain sealed.")
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user_id, username, role = row
+    user_id, username, role, stored_hash = row
+
+    # Verify plaintext password against stored bcrypt hash
+    if not verify_password(user.password, stored_hash):
+        state._last_error = f"Failed login for {user.username}"
+        chaos_log(f"Failed login for {user.username}. The gates remain sealed.")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     token = create_token(user_id, username, role)
 
     # Track session in global mutable state because why use a database
     state._user_sessions[user_id] = {
         "username": username,
-        "login_time": __import__('time').time(),
+        "login_time": __import__("time").time(),
         "request_count": 0,
     }
     chaos_log(f"User {username} has entered the chat. Current sessions: {len(state._user_sessions)}")
